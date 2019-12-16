@@ -1,0 +1,256 @@
+#ifndef __monitor_h
+#define __monitor_h
+
+#define HAVE_STRUCT_TIMESPEC
+
+#include <iostream>
+#include <deque>
+#include <stdlib.h>
+#include <chrono>
+#include <sys/types.h> 
+#include <unistd.h>
+#include <pthread.h> 
+#include <thread>
+#include <semaphore.h>
+
+class Semaphore
+{
+private:
+
+	sem_t sem;
+public:
+
+	Semaphore(int value)
+	{
+		if (sem_init(&sem, 0, value) != 0)
+			throw "sem_init: failed";
+	}
+
+	~Semaphore()
+	{
+
+		sem_destroy(&sem);
+	}
+
+	void p()
+	{
+		if (sem_wait(&sem) != 0)
+				throw "sem_wait: failed";
+	}	
+
+	void v()
+
+	{
+		if (sem_post(&sem) != 0)
+			throw "sem_post: failed";
+	}
+};
+
+#endif
+
+using namespace std;
+
+deque<int> q;
+
+const int Q_SIZE = 9;
+int RUN= 40;
+
+//in seconds
+const int PRODUCER_A_SLEEP = 7;
+const int PRODUCER_B_SLEEP = 6;
+
+const int CONSUMER_A_SLEEP = 5; 
+const int CONSUMER_B_SLEEP = 4;
+
+Semaphore full(0);     
+Semaphore eempty(Q_SIZE);       
+
+Semaphore mutex_1(1);  //if the only    
+Semaphore mutex_print(1); //for printing the queue
+
+Semaphore avaliable_even(0);  //if even number is avaliable for taking
+Semaphore avaliable_odd(1);  //if odd number is avaliable for taking
+
+
+inline void waiting(int _time)
+{
+	std::this_thread::sleep_for(std::chrono::microseconds(_time*1000000));
+}
+
+
+
+inline void writing(deque<int> q)
+{
+	if (q.empty())
+
+	{
+		cout << "At the moment the store is empty. Nothing to show";
+		return;
+	}
+
+	cout << "Store:  ";
+	for (auto i = 0; i != q.size(); ++i)
+	{
+
+		cout << q.at(i) << " ";
+
+	}
+	cout << endl << endl;
+
+}
+
+void producerA()
+{
+
+	while (--RUN>0)
+	{
+		int num=rand()%100+1;
+
+		waiting(PRODUCER_A_SLEEP);
+
+		mutex_print.p();
+		cout << "The producer A tries to product something...\n";
+		mutex_print.v();
+
+		eempty.p();
+		mutex_1.p();
+		q.push_back(num);
+
+		mutex_print.p();
+		cout << "The producer A products and puts into a store the number " << num << endl;
+		mutex_print.v();
+
+		writing(q);
+		mutex_1.v();
+		full.v();
+	}
+}
+
+void producerB()
+{
+	while (--RUN>0)
+	{
+		int num=rand()%100+1;
+
+		waiting(PRODUCER_B_SLEEP);
+
+		mutex_print.p();
+		cout << "The producer B tries to product something...\n";
+		mutex_print.v();
+
+		eempty.p();
+		mutex_1.p();
+		q.push_back(num);
+
+		mutex_print.p();
+		cout << "The producer B products and puts into a store the number " << num << endl;
+		mutex_print.v();
+
+		writing(q);
+		mutex_1.v();
+		full.v();
+	}
+}
+
+
+
+void consumerA()
+{
+	while (--RUN>0)
+	{
+		waiting(CONSUMER_A_SLEEP);
+
+		mutex_print.p();
+		cout << "The consumer A tries to take something..." << endl << endl;
+		mutex_print.v();
+
+		avaliable_even.p();
+		full.p();
+		mutex_1.p();
+
+		if (q.size()<=4)
+		{
+			avaliable_even.v();
+			mutex_1.v();
+			continue;
+		}
+
+		if (q.front()%2==0)
+		{
+			int a=q.at(0);
+			q.pop_front();
+
+			cout << "The consumer A takes from a store the even number " << a << endl;
+
+			avaliable_even.v();
+			writing(q);
+			eempty.v();
+			mutex_1.v();
+		}
+		else
+		{
+			avaliable_odd.v();
+			mutex_1.v();
+			full.v();
+		}
+	}
+}
+
+void consumerB() 
+{
+	while (--RUN>0)
+	{
+		waiting(CONSUMER_B_SLEEP);
+
+		mutex_print.p();
+		cout << "The consumer B tries to take something..." << endl << endl;
+		mutex_print.v();
+
+		avaliable_odd.p();
+		full.p();
+		mutex_1.p();
+
+		if (q.size()<=4)
+		{
+			avaliable_odd.v();
+			mutex_1.v();
+			continue;
+		}
+
+		if (q.front()%2==1)
+		{
+			int a=q.at(0);
+			q.pop_front();
+
+			cout << "The consumer B takes from a store the odd number " << a << endl;
+
+			avaliable_odd.v();
+			writing(q);
+			eempty.v();
+			mutex_1.v();
+		}
+		else
+		{
+			avaliable_even.v();
+			mutex_1.v();
+			full.v();
+		}
+	}
+}
+
+
+int main()
+
+{
+	thread thread1(producerA); //launch the threed of the  producer A
+	thread thread2(producerB); //launch the threed of the  producer B
+	thread thread3(consumerA); //launch the threed of the  consumer A 
+	thread thread4(consumerB); //launch the threed of the  consumer B 
+
+	thread1.join();
+	thread2.join();
+	thread3.join();
+	thread4.join();
+	
+	return 0;
+}
